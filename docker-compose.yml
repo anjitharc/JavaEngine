@@ -1,0 +1,60 @@
+services:
+  tomcat:
+    image: tomcat:9.0-jdk8-temurin-noble
+    restart: unless-stopped
+    user: "10001:10001"
+    depends_on:
+      ftp:
+        condition: service_healthy
+    environment:
+      TZ: ${TZ:-Asia/Kolkata}
+      CATALINA_OPTS: ${CATALINA_OPTS:--Xms256m -Xmx1024m -Djava.awt.headless=true}
+    expose:
+      - "8080"
+    volumes:
+      - webapps:/usr/local/tomcat/webapps
+    # Writable runtime directories for the non-root Tomcat process.
+    tmpfs:
+      - /usr/local/tomcat/logs:uid=10001,gid=10001,mode=0755
+      - /usr/local/tomcat/temp:uid=10001,gid=10001,mode=0755
+      - /usr/local/tomcat/work:uid=10001,gid=10001,mode=0755
+    healthcheck:
+      # HTTP 404 is expected before the first WAR is uploaded.
+      test: ["CMD", "curl", "--silent", "--output", "/dev/null", "--max-time", "5", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  ftp:
+    build: ./ftp
+    restart: unless-stopped
+    environment:
+      FTP_PASSWORD: ${FTP_PASSWORD:?Set FTP_PASSWORD in Dokploy Environment}
+      FTP_PUBLIC_HOST: ${FTP_PUBLIC_HOST:?Set FTP_PUBLIC_HOST to the server public IPv4 or DNS name}
+    ports:
+      - "${FTP_PORT:-21}:21"
+      - "30000-30009:30000-30009"
+    volumes:
+      - webapps:/srv/ftp/webapps
+      - ftp_tls:/etc/vsftpd/tls
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/21; read -r -t 3 reply <&3; [[ $$reply == 220* ]]"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  webapps:
+  ftp_tls:
